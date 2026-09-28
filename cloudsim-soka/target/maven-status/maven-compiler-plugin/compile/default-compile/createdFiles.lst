@@ -1,0 +1,10 @@
+soka/CloudEnv.class
+soka/algo/GAGWO.class
+soka/algo/ABC.class
+soka/algo/Scheduler.class
+soka/algo/RRABC.class
+soka/DatasetLoader.class
+soka/algo/RoundRobin.class
+soka/algo/CuckooSearch.class
+soka/Main.class
+soka/Metrics.class
