@@ -1,0 +1,3 @@
+
+# Local Maven, JDK, and dependency build cache
+.tools/

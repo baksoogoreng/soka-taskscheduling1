@@ -16,17 +16,26 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
         Locale.setDefault(Locale.US);
-        List<Long> miList = DatasetLoader.load("gocj_sample.txt");
-        double[] mi = miList.stream().mapToDouble(Long::doubleValue).toArray();
+        org.cloudbus.cloudsim.Log.disable();
+
         double[] vmMips = CloudEnv.VM_MIPS;
 
         double[][] W = {{0.5, 0.5}, {0.7, 0.3}, {0.3, 0.7}};
-        int RUNS = 30, POP = 30, ITERS = 100;
+        int RUNS = 3, POP = 30, ITERS = 100;
 
         try (PrintWriter runs = new PrintWriter("results.csv");
              PrintWriter sum = new PrintWriter("summary.csv")) {
-            runs.println("algo,w1,w2,run,makespan,util,waiting,fitness");
-            sum.println("algo,w1,w2,mk_mean,mk_std,util_mean,util_std,wait_mean,wait_std,fit_mean,fit_std,mk_improve_vs_RR_pct");
+            runs.println("tasks,algo,w1,w2,run,makespan,util,waiting,fitness");
+            sum.println("tasks,algo,w1,w2,runs,mk_mean,mk_std,util_mean,util_std,wait_mean,wait_std,fit_mean,fit_std,mk_improve_vs_RR_pct");
+
+            System.out.println("Pengujian 100-1000 task, 3 run per kombinasi");
+            for (int tasks = 100; tasks <= 1000; tasks += 100) {
+                List<Long> miList = new ArrayList<>();
+                for (String line : java.nio.file.Files.readAllLines(java.nio.file.Path.of("../GoCJ Google Cloud Jobs Dataset/GoCJ_Dataset_" + tasks + ".txt"))) {
+                    if (!line.isBlank()) miList.add(Long.parseLong(line.trim()));
+                }
+                if (miList.size() != tasks) throw new IllegalStateException("Jumlah dataset tidak sesuai");
+                double[] mi = miList.stream().mapToDouble(Long::doubleValue).toArray();
 
             for (double[] w : W) {
                 List<Scheduler> algos = List.of(
@@ -36,10 +45,13 @@ public class Main {
                         new RRABC(w[0], w[1], POP, ITERS, 20, POP / 3),
                         new GAGWO(w[0], w[1], POP, ITERS, 0.8, 0.02));
 
-                System.out.printf("%n=== Bobot w1=%.1f, w2=%.1f ===%n", w[0], w[1]);
+                System.out.printf("%n=== %d TASK | Bobot w1=%.1f, w2=%.1f ===%n", tasks, w[0], w[1]);
+                System.out.printf("%-10s %3s %14s %14s %14s %10s%n", "Algoritma", "Run", "Makespan (s)", "Util (%)", "Waiting (s)", "Fitness");
+                System.out.println("-".repeat(71));
+                StringBuilder summaryTable = new StringBuilder();
                 double rrMk = 0;
                 for (Scheduler s : algos) {
-                    int n = s.name().equals("RR") ? 1 : RUNS;
+                    int n = RUNS;
                     double[] mk = new double[n], ut = new double[n], wt = new double[n], fi = new double[n];
                     int[] lastMap = null;
                     for (int r = 0; r < n; r++) {
@@ -48,22 +60,29 @@ public class Main {
                         ut[r] = Metrics.utilization(map, mi, vmMips);
                         wt[r] = Metrics.avgWaiting(map, mi, vmMips);
                         fi[r] = Metrics.fitness(map, mi, vmMips, w[0], w[1]);
-                        runs.printf("%s,%.1f,%.1f,%d,%.3f,%.3f,%.3f,%.5f%n",
-                                s.name(), w[0], w[1], r, mk[r], ut[r], wt[r], fi[r]);
+                        runs.printf("%d,%s,%.1f,%.1f,%d,%.3f,%.3f,%.3f,%.5f%n",
+                                tasks, s.name(), w[0], w[1], r + 1, mk[r], ut[r], wt[r], fi[r]);
+                        System.out.printf("%-10s %3d %14.3f %14.3f %14.3f %10.5f%n", s.name(), r + 1, mk[r], ut[r], wt[r], fi[r]);
                         lastMap = map;
                     }
                     if (s.name().equals("RR")) rrMk = mean(mk);
                     double imp = (rrMk - mean(mk)) / rrMk * 100.0;
-                    sum.printf("%s,%.1f,%.1f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.5f,%.5f,%.2f%n",
-                            s.name(), w[0], w[1], mean(mk), std(mk), mean(ut), std(ut),
+                    sum.printf("%d,%s,%.1f,%.1f,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.5f,%.5f,%.2f%n",
+                            tasks, s.name(), w[0], w[1], n, mean(mk), std(mk), mean(ut), std(ut),
                             mean(wt), std(wt), mean(fi), std(fi), imp);
-                    System.out.printf("%-7s makespan %.2f ± %.2f | util %.2f ± %.2f %% | wait %.2f ± %.2f | fit %.4f | perbaikan vs RR %.2f %%%n",
-                            s.name(), mean(mk), std(mk), mean(ut), std(ut), mean(wt), std(wt), mean(fi), imp);
-
-                    // validasi CloudSim pada skenario pertama saja
+                    summaryTable.append(String.format("%-10s %20s %21s %21s %10.5f %12.2f%n",
+                            s.name(), String.format("%.3f +/- %.3f", mean(mk), std(mk)),
+                            String.format("%.3f +/- %.3f", mean(ut), std(ut)),
+                            String.format("%.3f +/- %.3f", mean(wt), std(wt)), mean(fi), imp));
                     if (w == W[0]) validate(s.name(), lastMap, miList, mi, vmMips);
                 }
+                System.out.println("\nRingkasan 3 pengulangan (rata-rata +/- standar deviasi):");
+                System.out.printf("%-10s %20s %21s %21s %10s %12s%n", "Algoritma", "Makespan (s)", "Util (%)", "Waiting (s)", "Fitness", "vs RR (%)");
+                System.out.println("-".repeat(105));
+                System.out.print(summaryTable);
             }
+            }
+            System.out.println("Hasil lengkap: results.csv | Ringkasan: summary.csv");
         }
     }
 
